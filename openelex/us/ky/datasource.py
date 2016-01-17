@@ -44,10 +44,11 @@ class Datasource(BaseDatasource):
         """
         meta_entries = []
         for election in elections:
-            meta_entries.extend(self._build_election_metadata(election))
+            election_metadata = self._build_election_metadata(election)
+            meta_entries.extend(election_metadata)
         return meta_entries
 
-    def _build_metadata_election(self, year, elections):
+    def _build_election_metadata(self,election):
         """
         This is the main method for building out the datasource. Works two different
         ways for the different ways we get data:
@@ -55,41 +56,46 @@ class Datasource(BaseDatasource):
         - Fixed width files - builds out mapping for county level data
         """
         # NEW VERSION
-        if any(self.CLARITY_PORTAL_URL in link for item in election['direct_links']:
-            return election._built_election_metadata_clarity
+        if any(self.CLARITY_PORTAL_URL in link for link in election['direct_links']):
+            return self._build_election_metadata_clarity
         #elif:   # if link is not to the file itself
             # call method to handle
         else:   # do default thing
-            return {
-                "generated_filename": generated_filename,
+            return [{
+                "generated_filename": self._standardized_filename(election,
+                    reporting_level='county', extension='.txt'),
                 "raw_url": election['direct_links'][0],
                 "ocd_id": 'ocd-division/country:us/state:ky',
                 "name": 'Kentucky',
                 "election": election['slug']
-            }
+            }]
 
     def _build_election_metadata_clarity(self, election, fmt="xml"):
         """
         Return metadata entries for election resulsts provided through Clarity,
         for elections starting in 2010.
         """
-        return self._build_election_metadata_clarity_county(election, fmt) +\
-            self._build_election_metadata_clarity_precinct(election, fmt)
+        county_mapping = self._build_election_metadata_clarity_county(election, fmt)
+        precinct_mapping = self._build_election_metadata_clarity_precinct(election, fmt)
+        meta_entries = county_mapping + precinct_mapping
+        return meta_entries
 
     def _build_election_metadata_clarity_county(self, election, fmt):
         # this method returns the mapping for county-level data for elections
         # that have results in the Clarity system
         results_url = [x for x in election['direct_links'] if x.startswith(self.RESULTS_PORTAL_URL)][0]
 
-        return[{
+        meta_entries = []
+        meta_entries.append({
             "generated_filename": self._standardized_filename(election,
-                reporting_level='county', extension='.'+fmt),
-            "raw_extracted_filename": "detail.{}".format(fmt),
+                reporting_level='county', extension='.txt'),
+            "raw_extracted_filename": "detail.{}".format('txt'),
             "raw_url": results_url,
             "ocd_id": 'ocd-division/country:us/state:ky',
             "name": 'Kentucky',
             "election": election['slug']
-        }]
+        })
+        return meta_entries
 
     def _build_election_metadata_clarity_precinct(self, election, fmt):
         """
@@ -115,11 +121,11 @@ class Datasource(BaseDatasource):
 
             meta_entries.append({
                 "generated_filename": filename,
-                "raw_extracted_filename": "detail.{}".format(fmt),
+                "raw_extracted_filename": "detail.{}".format('txt'),
                 "raw_url": report_url,
-                "ocd_id":,
+                "ocd_id": ocd_id,
                 "name": county.name,
-                election:election['slug']
+                "election": election['slug']
             })
 
         return meta_entries
