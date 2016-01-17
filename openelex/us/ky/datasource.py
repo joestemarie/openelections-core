@@ -7,6 +7,8 @@ import json
 import datetime
 import urlparse
 
+import clarify
+
 from openelex import PROJECT_ROOT
 from openelex.base.datasource import BaseDatasource
 from openelex.lib import build_github_url
@@ -55,29 +57,32 @@ class Datasource(BaseDatasource):
         - Clarity (2010 - present) - builds out mapping for county and precinct level
         - Fixed width files - builds out mapping for county level data
         """
+        meta_entries = []
         # NEW VERSION
         if any(self.CLARITY_PORTAL_URL in link for link in election['direct_links']):
-            return self._build_election_metadata_clarity
-        #elif:   # if link is not to the file itself
-            # call method to handle
+            meta_entries.extend(self._build_election_metadata_clarity(election))
         else:   # do default thing
-            return [{
+            meta_entries.append({
                 "generated_filename": self._standardized_filename(election,
                     reporting_level='county', extension='.txt'),
                 "raw_url": election['direct_links'][0],
                 "ocd_id": 'ocd-division/country:us/state:ky',
                 "name": 'Kentucky',
                 "election": election['slug']
-            }]
+            })
+
+        return meta_entries
 
     def _build_election_metadata_clarity(self, election, fmt="xml"):
         """
         Return metadata entries for election resulsts provided through Clarity,
         for elections starting in 2010.
         """
-        county_mapping = self._build_election_metadata_clarity_county(election, fmt)
-        precinct_mapping = self._build_election_metadata_clarity_precinct(election, fmt)
-        meta_entries = county_mapping + precinct_mapping
+        meta_entries = []
+
+        meta_entries.append(self._build_election_metadata_clarity_county(election, fmt))
+        meta_entries.append(self._build_election_metadata_clarity_precinct(election, fmt))
+
         return meta_entries
 
     def _build_election_metadata_clarity_county(self, election, fmt):
@@ -114,7 +119,7 @@ class Datasource(BaseDatasource):
         for county in subs:
             county_jurisdiction = clarify.Jurisdiction(url=county.url,level='county')
             report_url = county_jurisdiction.report_url('xml')
-            ocd_id = 'ocd-division/country:us/state:ky/county:{}'.format(ocd_type_id(county.name))
+            ocd_id = 'ocd-division/country:us/state:ky/county:{}'.format(county.name.lower())
             filename = self._standardized_filename(election,
                 jurisdiction=county.name, reporting_level='precinct',
                 extension='.'+fmt)
