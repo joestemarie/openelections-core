@@ -1,4 +1,6 @@
 """
+For all elections in 2010 and after, Kentucky posts results using the Clarity
+portal. For all elections before, results are available by county only.
 """
 from os.path import join
 import json
@@ -10,6 +12,10 @@ from openelex.base.datasource import BaseDatasource
 from openelex.lib import build_github_url
 
 class Datasource(BaseDatasource):
+    # defining prefixes so that we can use different methods to fetch data
+    # from different places
+    RESULTS_PORTAL_URL = "http://elect.ky.gov/SiteCollectionDocuments/"
+    CLARITY_PORTAL_URL = "http://results.enr.clarityelections.com/KY"
 
     # PUBLIC INTERFACE - used across all states so data is mapped uniformly
     def mappings(self, year=None):
@@ -33,15 +39,87 @@ class Datasource(BaseDatasource):
 
     # PRIVATE METHODS - used only in KY and built around their weirdness
     def _build_metadata(self, year, elections):
+        """
+        Builds out metadata given input of elections.
+        """
         meta_entries = []
-        year_int = int(year)
-        
         for election in elections:
-            meta_entries.append({
-                "generated_filename": self._standardized_filename(election),
+            meta_entries.extend(self._build_election_metadata(election))
+        return meta_entries
+
+    def _build_metadata_election(self, year, elections):
+        """
+        This is the main method for building out the datasource. Works two different
+        ways for the different ways we get data:
+        - Clarity (2010 - present) - builds out mapping for county and precinct level
+        - Fixed width files - builds out mapping for county level data
+        """
+        # NEW VERSION
+        if any(self.CLARITY_PORTAL_URL in link for item in election['direct_links']:
+            return election._built_election_metadata_clarity
+        #elif:   # if link is not to the file itself
+            # call method to handle
+        else:   # do default thing
+            return {
+                "generated_filename": generated_filename,
                 "raw_url": election['direct_links'][0],
-                "ocd_id": "ocd-division/country:us/state:{}".format(self.state),
-                "name": self.state,
+                "ocd_id": 'ocd-division/country:us/state:ky',
+                "name": 'Kentucky',
                 "election": election['slug']
+            }
+
+    def _build_election_metadata_clarity(self, election, fmt="xml"):
+        """
+        Return metadata entries for election resulsts provided through Clarity,
+        for elections starting in 2010.
+        """
+        return self._build_election_metadata_clarity_county(election, fmt) +\
+            self._build_election_metadata_clarity_precinct(election, fmt)
+
+    def _build_election_metadata_clarity_county(self, election, fmt):
+        # this method returns the mapping for county-level data for elections
+        # that have results in the Clarity system
+        results_url = [x for x in election['direct_links'] if x.startswith(self.RESULTS_PORTAL_URL)][0]
+
+        return[{
+            "generated_filename": self._standardized_filename(election,
+                reporting_level='county', extension='.'+fmt),
+            "raw_extracted_filename": "detail.{}".format(fmt),
+            "raw_url": results_url,
+            "ocd_id": 'ocd-division/country:us/state:ky',
+            "name": 'Kentucky',
+            "election": election['slug']
+        }]
+
+    def _build_election_metadata_clarity_precinct(self, election, fmt):
+        """
+        To get the data for each precinct, we use the Clarify library. We use the link from
+        the Metadata API to create a list of counties with results. Then, we use Clarify's
+        get_subjurisdictions() method to get all of the counties within and get a link to all
+        of their results.
+        """
+        meta_entries = []
+
+        # get the URL in the election links that has the portal URL in it
+        clarity_url = [x for x in election['direct_links'] if x.startswith(self.CLARITY_PORTAL_URL)][0]
+        statewide_jurisdiction = clarify.Jurisdiction(url=clarity_url, level='state')
+        subs = statewide_jurisdiction.get_subjurisdictions()
+
+        for county in subs:
+            county_jurisdiction = clarify.Jurisdiction(url=county.url,level='county')
+            report_url = county_jurisdiction.report_url('xml')
+            ocd_id = 'ocd-division/country:us/state:ky/county:{}'.format(ocd_type_id(county.name))
+            filename = self._standardized_filename(election,
+                jurisdiction=county.name, reporting_level='precinct',
+                extension='.'+fmt)
+
+            meta_entries.append({
+                "generated_filename": filename,
+                "raw_extracted_filename": "detail.{}".format(fmt),
+                "raw_url": report_url,
+                "ocd_id":,
+                "name": county.name,
+                election:election['slug']
             })
+
         return meta_entries
